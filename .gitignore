@@ -1,0 +1,8 @@
+.idea/*
+dir/*
+__pycache__/*
+token.json
+.env
+credentials.json
+services/__pycache__/*
+utils/__pycache__/*
