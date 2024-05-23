@@ -8,7 +8,7 @@ if __name__ == '__main__':
     # update_shows_archive("GLGLZ", datetime(2023, 10, 1), datetime.now())
     # extract_episodes_for_all_shows(datetime(2023, 10, 1), datetime.now())
     download_remaining_episodes()
-    # transcribe_batch_gcs_input_inline_output_v2("gs://glz-content/2023-10-23_0000002102_p1.mp3")
+    # transcribe_batch_gcs_input_inline_output_v2("2023-10-23_0000002102_p1.mp3")
     # upload_blob("dir/2023-11-22_0000002071_p1.mp3", "abc.mp3")
     #  delete_blob("abc.mp3")
 

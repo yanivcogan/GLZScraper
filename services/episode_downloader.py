@@ -7,6 +7,9 @@ from typing import Literal
 from fake_useragent import UserAgent
 import time
 from pydub import AudioSegment
+
+from episode_transcriber import transcribe_batch_gcs_input_inline_output_v2
+from google_cloud_storage_manager import upload_blob, delete_blob
 from google_drive_manager import upload_file
 from utils import db
 
@@ -20,7 +23,7 @@ def download_remaining_episodes():
         episode_to_download = db.execute_query(
             '''SELECT e.* 
             FROM episode AS e
-            WHERE e.drive_url IS NULL AND
+            WHERE e.local_storage IS NULL AND
              e.air_date > '2023-10-06' AND
              e.download_status = 'not downloaded' AND
              e.page_url NOT LIKE '%|%D7|%92|%D7|%9C|%D7|%92|%D7|%9C|%D7|%A6%' ESCAPE '|'
@@ -68,18 +71,29 @@ def download_episode(episode_id: int):
         episode_filename = str(episode["air_date"]) + "_" + str(episode_id).zfill(10)
         download_file(download_url, episode_filename)
         file_segments = split_file(episode_filename)
-        drive_ids = []
-        for s in file_segments:
-            drive_id = upload_file(s, s)
-            drive_ids.append("https://drive.google.com/file/d/" + drive_id)
-            print("removing segment")
-            remove("./dir/" + s)
-        print("linking drive storage to db")
+        transcript_parts = []
+        print("storing file links")
         db.execute_query(
-            '''UPDATE episode SET drive_url = %(drive_id)s
+            '''UPDATE episode SET local_storage = %(file_segments)s
             WHERE id = %(id)s
             ''',
-            {"id": episode_id, "drive_id": json.dumps(drive_ids)}, "id"
+            {"id": episode_id, "file_segments": json.dumps(file_segments)}, "id"
+        )
+        for s in file_segments:
+            # uploading segment
+            upload_blob("./dir/" + s, s)
+            # transcribe segment
+            segment_transcript = transcribe_batch_gcs_input_inline_output_v2(s)
+            transcript_parts.append(segment_transcript)
+            print("removing segment")
+            delete_blob(s)
+            # remove("./dir/" + s)
+        print("storing transcript")
+        db.execute_query(
+            '''UPDATE episode SET transcripts = %(transcript_parts)s
+            WHERE id = %(id)s
+            ''',
+            {"id": episode_id, "transcript_parts": json.dumps(transcript_parts, ensure_ascii=False).encode('utf8')}, "id"
         )
         print("removing file")
         remove("./dir/" + episode_filename + ".mp3")

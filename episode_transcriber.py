@@ -1,20 +1,20 @@
 from google.api_core import client_options
-from google.cloud.speech_v2 import SpeechClient
+from google.cloud.speech_v2 import SpeechClient, BatchRecognizeResponse
 from google.cloud.speech_v2.types import cloud_speech
+
+project_id = "glz-archives"
 
 
 def transcribe_batch_gcs_input_inline_output_v2(
-        project_id: str,
-        gcs_uri: str,
-) -> cloud_speech.BatchRecognizeResults:
+        gcs_object: str,
+) -> list[dict]:
     """Transcribes audio from a Google Cloud Storage URI.
 
     Args:
-        project_id: The Google Cloud project ID.
-        gcs_uri: The Google Cloud Storage URI.
+        gcs_object: The Google Cloud Storage file name.
 
     Returns:
-        The RecognizeResponse.
+        The list[dict].
     """
     # Instantiates a client
     client_options_var = client_options.ClientOptions(
@@ -31,6 +31,8 @@ def transcribe_batch_gcs_input_inline_output_v2(
         model="chirp_2",
     )
 
+    gcs_uri = "gs://glz-content/" + gcs_object
+
     file_metadata = cloud_speech.BatchRecognizeFileMetadata(uri=gcs_uri)
 
     request = cloud_speech.BatchRecognizeRequest(
@@ -46,10 +48,16 @@ def transcribe_batch_gcs_input_inline_output_v2(
     # Transcribes the audio into text
     operation = client.batch_recognize(request=request)
 
-    print("Waiting for operation to complete...")
-    response = operation.result(timeout=12000)
+    print("Waiting for transcription to complete...")
+    response: BatchRecognizeResponse = operation.result(timeout=12000)
 
-    for result in response.results[gcs_uri].transcript.results:
-        print(f"Transcript: {result.alternatives[0].transcript}")
+    response_as_json = [{
+        "transcript": {
+            "results": [{
+                "offset": str(r2.result_end_offset),
+                "alternatives": [a.transcript for a in r2.alternatives]
+            } for r2 in response.results[r].transcript.results],
+        }
+    } for r in response.results]
 
-    return response.results[gcs_uri].transcript
+    return response_as_json
