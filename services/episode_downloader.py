@@ -2,7 +2,7 @@ import json
 import urllib
 import urllib.request
 from os import remove
-from typing import Literal
+from typing import Literal, Optional
 
 from fake_useragent import UserAgent
 import time
@@ -11,6 +11,7 @@ from pydub import AudioSegment
 from episode_transcriber import transcribe_batch_gcs_input_inline_output_v2
 from google_cloud_storage_manager import upload_blob, delete_blob
 from google_drive_manager import upload_file
+from services.file_hash_generator import gen_hash
 from utils import db
 
 ua = UserAgent()
@@ -41,12 +42,12 @@ def download_remaining_episodes():
               str(end - start) + " seconds ****")
 
 
-def set_episode_download_status(episode_id: int, status: Literal["not downloaded", "downloaded", "error", "in progress"]):
+def set_episode_download_status(episode_id: int, status: Literal["not downloaded", "downloaded", "error", "in progress"], error: Optional[str] = None):
     db.execute_query(
-        '''UPDATE episode SET download_status = %(status)s
+        '''UPDATE episode SET download_status = %(status)s, err_msg = %(error)s
         WHERE id = %(id)s
         ''',
-        {"id": episode_id, "status": status}, "id"
+        {"id": episode_id, "status": status, "error": error}, "id"
     )
 
 
@@ -70,6 +71,38 @@ def download_episode(episode_id: int):
         download_url = episode["file_url"]
         episode_filename = str(episode["air_date"]) + "_" + str(episode_id).zfill(10)
         download_file(download_url, episode_filename)
+        # check if the episode is a duplicate of an already existing episode
+        print("hashing episode")
+        episode_hash = gen_hash("./dir/" + episode_filename + ".mp3")
+        print("searching for previous airings of the same content")
+        previous_airings = db.execute_query(
+            '''SELECT * FROM episode
+            WHERE content_hash = %(content_hash)s
+            ''',
+            {"content_hash": episode_hash},
+            return_type="single_row"
+        )
+        if previous_airings:
+            print("episode is duplicate of episode " + str(previous_airings["id"]))
+            db.execute_query(
+                '''UPDATE episode SET duplicate_of = %(duplicate_of)s
+                WHERE id = %(id)s
+                ''',
+                {"id": episode_id, "duplicate_of": previous_airings["id"]}, "id"
+            )
+            print("removing file")
+            remove("./dir/" + episode_filename + ".mp3")
+            print("removed file")
+            set_episode_download_status(episode_id, "downloaded")
+            return
+        print("storing episode hash")
+        db.execute_query(
+            '''UPDATE episode SET content_hash = %(content_hash)s
+            WHERE id = %(id)s
+            ''',
+            {"id": episode_id, "content_hash": episode_hash}, "id"
+        )
+        print("splitting episode for processing")
         file_segments = split_file(episode_filename)
         transcript_parts = []
         print("storing file links")
@@ -101,7 +134,7 @@ def download_episode(episode_id: int):
         set_episode_download_status(episode_id, "downloaded")
     except Exception as e:
         print(str(e))
-        set_episode_download_status(episode_id, "error")
+        set_episode_download_status(episode_id, "error", str(e))
     finally:
         end = time.time()
         print("done processing episode " + str(episode_id))
@@ -111,12 +144,7 @@ def download_episode(episode_id: int):
 def download_file(download_url: str, filename: str, file_ext: str = "mp3"):
     print("downloading " + filename)
     print("from: " + download_url)
-    try:
-        response = urllib.request.urlopen(urllib.request.Request(download_url, headers={'User-Agent': ua.chrome}))
-    except Exception as e:
-        print("error")
-        print(e)
-        return
+    response = urllib.request.urlopen(urllib.request.Request(download_url, headers={'User-Agent': ua.chrome}))
     content = response.read()
     with open("./dir/" + filename + "." + file_ext, "wb") as file:
         file.write(content)
