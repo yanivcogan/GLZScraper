@@ -6,3 +6,7 @@ token.json
 credentials.json
 services/__pycache__/*
 utils/__pycache__/*
+client/node_modules/*
+client/build/*
+client/yarn-error.log
+client/yarn.lock

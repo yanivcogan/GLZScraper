@@ -1,0 +1,26 @@
+body{
+    overflow: hidden !important;
+    height: 100vh;
+}
+
+.content-wrap{
+    padding: 2em;
+    box-sizing: border-box;
+    h3{
+        margin-top: 0;
+    }
+}
+.page-wrap{
+    display: flex;
+    flex-direction: column;
+}
+.page-content{
+    width: 100vw;
+    height: calc(100vh - 55px);
+    overflow-y: scroll;
+}
+.horizontal-spread{
+    display: flex;
+    flex-direction: row;
+    gap: 1em;
+}
