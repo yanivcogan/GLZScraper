@@ -10,3 +10,6 @@ client/node_modules/*
 client/build/*
 client/yarn-error.log
 client/yarn.lock
+client.zip
+GLZScraper.zip
+client/src/static/test.mp3

@@ -13,7 +13,6 @@ import { prefixer } from 'stylis';
 import { BrowserRouter as Router, Route, Routes  } from "react-router-dom";
 import PubSub from 'pubsub-js';
 import events from './lib/events';
-import Alert from './UIComponents/Alert/Alert'
 import NoMatch from "./pages/404";
 import Search from "./pages/Search";
 interface IProps {}
@@ -76,7 +75,6 @@ export default class App extends React.Component <IProps, IState> {
               <Route path="/" element={<Search/>}/>
               <Route path="/*" element={<NoMatch/>}/>
             </Routes >
-            <Alert setQueue={(alertQueue:any)=>this.setState({alertQueue})} queue={this.state.alertQueue}/>
           </div>
         </Router>
         </CacheProvider>

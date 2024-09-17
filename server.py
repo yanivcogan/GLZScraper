@@ -5,6 +5,8 @@ from dotenv import load_dotenv
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from utils import db
@@ -24,6 +26,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# app.mount("/dir", StaticFiles(directory="dir"), name="dir")
+
+
+@app.get("/dir/{file_path:path}")
+async def function(file_path: str):
+    response = FileResponse(f"dir/{file_path}")
+    response.headers["X-Custom-Header"] = "Your custom header value"
+    return response
+
 
 class SearchQuery(BaseModel):
     type: Literal["contains", "regex", "boolean"]
@@ -38,8 +49,10 @@ async def fetch_incident(search: SearchQuery):
             '''
             SELECT e.*, p.title
             FROM episode AS e 
-            JOIN programme p ON e.programme_id = p.id
+            JOIN programme p ON e.programme_id = p.glz_id
             WHERE transcripts LIKE %(search)s
+            AND e.duplicate_of IS NULL
+            ORDER BY e.air_date
             LIMIT 20 OFFSET %(offset)s
             ''',
             {"offset": search.page * 20, "search": "%"+search.query+"%"},
@@ -50,8 +63,10 @@ async def fetch_incident(search: SearchQuery):
             '''
             SELECT e.*, p.title
             FROM episode AS e 
-            JOIN programme p ON e.programme_id = p.id
+            JOIN programme p ON e.programme_id = p.glz_id
             WHERE transcripts REGEXP %(search)s
+            AND e.duplicate_of IS NULL
+            ORDER BY e.air_date
             LIMIT 20 OFFSET %(offset)s
             ''',
             {"offset": search.page * 20, "search": "%"+search.query+"%"},
@@ -62,8 +77,9 @@ async def fetch_incident(search: SearchQuery):
             '''
             SELECT e.*, p.title
             FROM episode AS e 
-            JOIN programme p ON e.programme_id = p.id
+            JOIN programme p ON e.programme_id = p.glz_id
             WHERE MATCH (e.transcripts) AGAINST (%(search)s IN BOOLEAN MODE)
+            AND e.duplicate_of IS NULL
             LIMIT 20 OFFSET %(offset)s
             ''',
             {"offset": search.page * 20, "search": "%"+search.query+"%"},

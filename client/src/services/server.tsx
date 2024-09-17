@@ -3,7 +3,6 @@ import config from './config';
 import PubSub from "pubsub-js";
 import events from "../lib/events";
 import React from "react";
-import UnsuspendSession from "../UIComponents/UnsuspendSession/UnsuspendSession";
 import cookie from "js-cookie";
 
 const apiPath='api/';
@@ -49,94 +48,10 @@ const post: (path:string, data:{[key:string]: any}, method?: HTTP_METHODS, optio
 }
 
 function handleResult(json:any, method:HTTP_METHODS, path:string, data?:{[key:string]: any}, options?: IRequestOptions){
-	const currPosition = encodeURIComponent(window.location.pathname + window.location.search);
 	const jsonPromise:Promise<{[key:string]: any}> = new Promise((resolve) => {
-		let suppressResult = false;
-		if(json && json.error && !(options && options.ignoreErrors)) {
-			if (json.error === "missing token") {
-				suppressResult = true;
-				PubSub.publish(events.alert, alerts(serverErrorAlerts[serverErrorAlerts.missingToken],
-					currPosition));
-			} else if (json.error === "missing permissions") {
-				suppressResult = true;
-				PubSub.publish(events.alert, alerts(serverErrorAlerts[serverErrorAlerts.missingPermission],
-					currPosition));
-			} else if (json.error === "suspended session") {
-				suppressResult = true;
-				refetchQueue.push(() => {
-					refetch(method, path, data ? data : {}).then((result: any) => {
-						resolve(result)
-					})
-				});
-				PubSub.publish(
-					events.alert,
-					alerts(serverErrorAlerts[serverErrorAlerts.suspendedSession],
-					currPosition)
-				);
-			}
-		}
-		if(!suppressResult){
-			resolve(json);
-		}
+		resolve(json);
 	});
 	return jsonPromise;
-}
-
-function alerts (type:string, path:string) {
-	switch(type){
-		case serverErrorAlerts[serverErrorAlerts.missingPermission]: return {
-			content: "you don't have permissions to view this page, switch user?",
-				flush: true,
-				opaque: true,
-				onClose: () => window.location.href = '/Login?redirect=' + path,
-				resolutionOptions: [
-				{
-					label: "yes",
-					onClick: () => window.location.href = '/Login?redirect=' + path,
-				},
-				{
-					label: "no",
-					onClick: () => window.location.href = '/Welcome',
-				},
-			]
-		};
-		case serverErrorAlerts[serverErrorAlerts.missingToken]: return {
-			content: "you aren't logged in",
-				flush: true,
-				opaque: true,
-				onClose: () => window.location.href = '/Login?redirect=' + path,
-				resolutionOptions: [
-				{
-					label: "ok",
-					onClick: () => window.location.href = '/Login?redirect=' + path,
-				}
-			]
-		};
-		case serverErrorAlerts[serverErrorAlerts.suspendedSession]: return {
-			content: <UnsuspendSession onSuccess={() => {
-				PubSub.publish(events.clearAlert, {clearAll: true});
-				runRefetchQueue();
-			}}/>,
-				flush: true,
-				opaque: true,
-				onClose: () => window.location.href = '/Login?redirect=' + path,
-		};
-		default:
-			break;
-	}
-}
-
-//called after a session is un-suspended
-function refetch(method:HTTP_METHODS, path:string, data:{[key:string]: any}){
-	return post(path, data, method);
-}
-
-//recall all suspended server calls
-function runRefetchQueue(){
-	for(let i = 0; i < refetchQueue.length; i++){
-		refetchQueue[i]();
-	}
-	refetchQueue = [];
 }
 
 export default ({

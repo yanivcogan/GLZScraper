@@ -3,73 +3,53 @@ import withRouter, {IRouterProps} from "../services/withRouter";
 import server from "../services/server";
 import "./settings/settings.scss"
 import {
-    Accordion, AccordionDetails, AccordionSummary,
-    Button,
-    CircularProgress, FormControlLabel,
-    IconButton, Pagination,
-    Snackbar,
+    Card, CardContent, CardHeader,
+    CircularProgress, Divider, IconButton,
+    MenuItem, Pagination, Paper, Select,
     Stack,
-    styled, Switch,
     TextField,
-    Tooltip, tooltipClasses,
-    TooltipProps,
-    Zoom
 } from "@mui/material";
-import {AddCircle, RemoveCircle, ExpandMore} from "@mui/icons-material";
+import {PlayCircle} from "@mui/icons-material";
+import ReactAudioPlayer from "react-audio-player";
 
 interface IProps extends IRouterProps {}
-type DataItem = ({[key: string]: any}&{id: number | null, _changed:boolean})
+interface ISearchRes {
+    id: number
+    program: string,
+    date: string,
+    transcripts: {
+        transcript: {
+            results: {offset: string, alternatives: string[]}[]
+        }
+    }[][]
+    files: string[],
+    remote: string
+}
 interface IState {
+    page: number,
+    mode: "boolean" | "contains" | "regex",
+    search: string,
+    data: ISearchRes[],
+    audioPath: string | null,
     loadingData: boolean,
     loadingError: string | null,
-    data: DataItem[],
-    page: number
-    deletedRows: number[],
-    awaitingSave: boolean,
-    saveNotification: string | null,
-
+    lastFetch: number
 }
 
-type DataFieldType = "bool" | "str" | "number"
-
-interface IDataField {
-    title: string,
-    key: string,
-    type: DataFieldType,
-    disabled?: boolean
-}
-
-const PAGE_SIZE = 15;
+const PAGE_SIZE = 20;
 
 class Search extends React.Component<IProps, IState> {
-
-    private endPoint = "sources";
-    private fields: IDataField[] = [
-        {title: "Source Name", key: "title", type: "str"},
-        {title: "URL", key: "url", type: "str"},
-        {title: "Requires JS", key: "load_in_browser", type: "bool"},
-        {title: "Title Selector (optional)", key: "title_selector", type: "str"},
-        {title: "Date Selector (optional)", key: "date_selector", type: "str"},
-        {title: "Body Selector (optional)", key: "body_selector", type: "str"},
-        {title: "Date Added", key: "date_added", type: "str", disabled: true},
-    ];
-    private defaultNewItem: {[key: string]: any} = {
-        keyword: "",
-        stemmed: "",
-        exact: false,
-        regex: false
-    }
-
     constructor(props: IProps) {
         super(props);
         this.state = {
             loadingData: false,
             loadingError: null,
+            lastFetch: 0,
             data: [],
+            audioPath: null,
             page: 0,
-            deletedRows: [],
-            awaitingSave: false,
-            saveNotification: null
+            search: "",
+            mode: "contains"
         }
     }
 
@@ -80,131 +60,143 @@ class Search extends React.Component<IProps, IState> {
     private async fetchData() {
         if(this.state.loadingData){return}
         this.setState((curr)=>({...curr, loadingData: true}),async ()=>{
-            const res = await server.get(this.endPoint + "/");
+            const time =  new Date().getTime()
+            const res = await server.post("search/",
+                {
+                    type: this.state.mode,
+                    query: this.state.search,
+                    page: this.state.page
+                }
+            );
+            if(time < this.state.lastFetch){return}
             if (res && !res.error) {
-                const nullDataFlags:DataItem[] = res.map(
-                    (x:{[key: string]: any}&{id: number | null}) => {
-                    const item:DataItem = {...x, _changed: false};
-                    return item;
+                const data:ISearchRes[] = res.map((e:any):ISearchRes=>{
+                    return {
+                        id: e.id,
+                        program: e.title,
+                        date: e.air_date,
+                        files: JSON.parse(e.local_storage),
+                        remote: e.file_url,
+                        transcripts: JSON.parse(e.transcripts)
+                    }
                 });
                 this.setState((curr)=>({
-                    ...curr, data: nullDataFlags, deletedRows: [],
-                    loadingData: false, loadingError: null
+                    ...curr, data, loadingData: false, loadingError: null, lastFetch: time
                 }))
             }
             else {
                 this.setState((curr)=>({
                     ...curr, loadingData: false,
-                    loadingError: res?.error || "error - failed to load data"
+                    loadingError: res?.error || "error - failed to load data",
+                    lastFetch: time
                 }))
             }
         })
     }
 
     private getDataEditor():JSX.Element {
-        const page = this.state.page;
-        const data = this.state.data.slice(page*PAGE_SIZE, (page + 1)*PAGE_SIZE);
-        const pageCount = Math.ceil(this.state.data.length / PAGE_SIZE)
-        return <Stack direction={"column"} gap={1} className={"settings-editor"}>
-            {
-                data.map((r, p_i)=>{
-                    const i:number = (page*PAGE_SIZE) + p_i;
-                    return <React.Fragment key={i}>
-                        <HtmlTooltip
-                            TransitionComponent={Zoom}
-                            TransitionProps={
-                                {
-                                    style: {
-                                        transformOrigin: "center left"
-                                    }
-                                }
-                            }
-                            title={
-                                <Tooltip title={"הסרת רשומה"} arrow placement={"bottom"}>
-                                    <IconButton
-                                        aria-label="delete"
-                                        color={"error"}
-                                        onClick={()=> {this.deleteData(i)}}
-                                    >
-                                        <RemoveCircle/>
-                                    </IconButton>
-                                </Tooltip>
-                            }
-                            placement={"right-start"}
-                        >
-                            <Accordion>
-                                <AccordionSummary
-                                    expandIcon={<ExpandMore/>}
-                                >
-                                    <a href={data[p_i].url}>{data[p_i].title || "new source"}</a>
-                                </AccordionSummary>
-                                <AccordionDetails>
-                                    <Stack direction={"column"} gap={1} alignItems={"left"} dir={"ltr"}>
-                                    {
-                                        this.fields.map((f, j)=>{
-                                            return DataFieldRenderer[f.type](
-                                                f,
-                                                data[p_i][f.key],
-                                                (value)=>{this.editData(i, f.key, value);}
-                                            )
-                                        })
-                                    }
-                                    </Stack>
-                                </AccordionDetails>
-                            </Accordion>
-                        </HtmlTooltip>
-                    </React.Fragment>
-                })
-            }
-            <Pagination dir={"ltr"} count={pageCount} page={page + 1} onChange={(e, page)=>{
-                this.setState((curr)=>({...curr, page: page - 1}))
-            }} />
-            <div><Tooltip title={"הוספת רשומה"} arrow placement={"bottom"}>
-                <IconButton
-                    aria-label="add"
-                    color={"primary"}
-                    onClick={()=>{this.addRow()}}
-                >
-                    <AddCircle/>
-                </IconButton>
-            </Tooltip></div>
-        </Stack>
+        const data = this.state.data.slice()
+        return <Stack direction={"column"} gap={2}>{
+            data.map(e=>{
+                return <Card key={e.id}>
+                    <CardHeader
+                        title = {e.program}
+                        subheader = {e.date}
+                    />
+                    <CardContent>
+                        <Stack
+                            direction={"column"}
+                            gap={1}
+                            divider={<Divider orientation="horizontal" flexItem />}
+                        >{
+                            e.files.map((f, i)=>{
+                                return e.transcripts[i][0].transcript.results
+                                    .filter((s)=>{
+                                        return ((s.alternatives || [])[0] || "").includes(this.state.search)
+                                    })
+                                    .filter((s, j)=>j<=10)
+                                    .map((s, j: number)=>{
+                                        return <div key={""+i+"_"+j} style={{width: "60vw"}}>
+                                            <Stack direction={"row"} gap={1} alignItems={"center"}>
+                                                <IconButton
+                                                    size={"small"}
+                                                    color={"primary"}
+                                                    onClick={()=>{
+                                                        this.setState((curr)=>({...curr, audioPath: e.remote + "#t=" + s.offset}))
+                                                    }}
+                                                >
+                                                    <PlayCircle/>
+                                                </IconButton>
+                                                <span>{(s.alternatives || [])[0] || ""}</span>
+                                            </Stack>
+                                        </div>
+                                    })
+                            })
+                        }</Stack>
+                    </CardContent>
+                </Card>
+            })
+        }</Stack>
     }
 
     render() {
-        return <div className={"page-wrap"}>
-            <TopNavBar>
-                <div className="title-wrap">
-                    מקורות
-                </div>
-            </TopNavBar>
-            <div className={"page-content content-wrap"}>
-                {
-                    this.state.loadingData ? <CircularProgress/> : (
-                        this.state.loadingError ? <span className={"data-load-error"}>
-                            {this.state.loadingError}
-                        </span> : <span>
-                            {this.getDataEditor()}
-                            <div className={"save-section-wrap"}>
-                            {
-                                this.state.awaitingSave ?
-                                    <CircularProgress/> :
-                                    <Button
-                                        onClick={async ()=>{
-                                            await this.saveData();
-                                        }}
-                                        variant={"outlined"}
-                                    >
-                                        Save
-                                    </Button>
-                            }
-                            </div>
-                        </span>
-                    )
-                }
-                {this.getSaveNotifications()}
+        const page = this.state.page;
+        const pageCount = 10;
+        return <Stack className={"page-wrap"} direction={"column"} gap={2} alignItems={"center"} style={{margin: "3em"}}>
+            <Stack direction={"row"} gap={2}>
+                <TextField
+                    value={this.state.search}
+                    onChange={e=>this.setState((curr)=>({...curr, search: e.target.value}),
+                    )}
+                    onKeyDown={async (e)=>{
+                        if(e.key==="Enter"){
+                            await this.fetchData();
+                        }
+                    }}
+                />
+                <Select
+                    value={this.state.mode}
+                    onChange={e=>this.setState((curr)=>({...curr, mode: e.target.value as "boolean" | "contains" | "regex"}),
+                        async()=>{await this.fetchData();}
+                    )}
+                >
+                    {
+                        ["contains", "regex", "boolean"]
+                            .map(v=><MenuItem key={v} value={v}>{v}</MenuItem>)
+                    }
+                </Select>
+            </Stack>
+            <div style={{height: "70vh", overflow: "auto"}}>
+            {
+                this.state.loadingData ? <CircularProgress/> : (
+                    this.state.loadingError ? <span className={"data-load-error"}>
+                        {this.state.loadingError}
+                    </span> : <span>
+                        {this.getDataEditor()}
+                    </span>
+                )
+            }
             </div>
-        </div>
+            <Pagination dir={"ltr"} count={pageCount} page={page + 1} onChange={(e, page)=>{
+                this.setState((curr)=>({...curr, page: page - 1}),
+                    async()=>{await this.fetchData();}
+                )
+            }} />
+            {this.state.audioPath ? <ReactAudioPlayer
+                key={this.state.audioPath}
+                src={this.state.audioPath}
+                controls
+                autoPlay
+                preload={"none"}
+                onCanPlay={(e)=>{
+                    /*setTimeout(()=>{
+                        console.log((e.target as HTMLAudioElement).currentTime);
+                        (e.target as HTMLAudioElement).currentTime=50
+                        console.log((e.target as HTMLAudioElement).currentTime);
+                    }, 3000)*/
+                }}
+            /> : null}
+        </Stack>
     }
 }
 
