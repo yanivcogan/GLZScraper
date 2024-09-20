@@ -1,4 +1,6 @@
 import {
+    NavigateFunction, Params,
+    SetURLSearchParams,
     useLocation,
     useNavigate,
     useParams, useSearchParams,
@@ -6,11 +8,11 @@ import {
 import React from "react";
 
 export interface IRouterProps {
-    location: any,
-    navigate: any,
-    params: any,
+    location: Location,
+    navigate: NavigateFunction,
+    params: Readonly<Params<string>>,
     searchParams: URLSearchParams,
-    setSearchParams: any,
+    setSearchParams: SetURLSearchParams,
 }
 
 export default function withRouter(Component: any) {

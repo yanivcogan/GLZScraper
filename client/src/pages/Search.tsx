@@ -1,76 +1,112 @@
 import React from 'react'
 import withRouter, {IRouterProps} from "../services/withRouter";
 import server from "../services/server";
-import "./settings/settings.scss"
+import "./search/search.scss"
 import {
-    Card, CardContent, CardHeader,
-    CircularProgress, Divider, IconButton,
-    MenuItem, Pagination, Paper, Select,
+    Card,
+    CardContent,
+    CardHeader,
+    CircularProgress,
+    Divider,
+    IconButton, InputAdornment,
+    MenuItem,
+    Pagination,
+    Select,
     Stack,
     TextField,
 } from "@mui/material";
-import {PlayCircle} from "@mui/icons-material";
-import ReactAudioPlayer from "react-audio-player";
+import Highlighter from "react-highlight-words";
+import {PlayCircle, SearchOutlined} from "@mui/icons-material";
+import AudioPlayer from "../components/AudioPlayer";
+import EpisodesDisplay, {IEpisode} from "../components/EpisodesDisplay";
 
-interface IProps extends IRouterProps {}
-interface ISearchRes {
-    id: number
-    program: string,
-    date: string,
-    transcripts: {
-        transcript: {
-            results: {offset: string, alternatives: string[]}[]
-        }
-    }[][]
-    files: string[],
-    remote: string
+interface IProps extends IRouterProps {
 }
+
 interface IState {
     page: number,
+    pageSize: number,
+    pageCount?: number,
     mode: "boolean" | "contains" | "regex",
     search: string,
-    data: ISearchRes[],
+    committedSearch: string,
+    data: IEpisode[],
     audioPath: string | null,
+    playbackRate: number,
     loadingData: boolean,
     loadingError: string | null,
     lastFetch: number
 }
 
-const PAGE_SIZE = 20;
-
 class Search extends React.Component<IProps, IState> {
     constructor(props: IProps) {
         super(props);
+        const search = props.searchParams.get("s") || "";
+        const page = parseInt(props.searchParams.get("p") || "0");
+        const pageSize = parseInt(props.searchParams.get("ps") || "20");
         this.state = {
             loadingData: false,
             loadingError: null,
             lastFetch: 0,
             data: [],
             audioPath: null,
-            page: 0,
-            search: "",
-            mode: "contains"
+            playbackRate: 2.5,
+            pageCount: undefined,
+            committedSearch: search,
+            mode: "contains",
+            page,
+            pageSize,
+            search,
         }
     }
 
-    async componentDidMount(){
+    async componentDidMount() {
         await this.fetchData();
     }
 
+    async componentDidUpdate(prevProps: IProps) {
+        const search = this.props.searchParams.get("s") || "";
+        const page = parseInt(this.props.searchParams.get("p") || "0");
+        const pageSize = parseInt(this.props.searchParams.get("ps") || "20");
+        const prevSearch = prevProps.searchParams.get("s") || "";
+        const prevPage = parseInt(prevProps.searchParams.get("p") || "0");
+        const prevPageSize = parseInt(prevProps.searchParams.get("ps") || "20");
+        if (prevSearch === search && prevPage === page && prevPageSize === pageSize) {
+            return
+        }
+        if (search !== this.state.committedSearch || page !== this.state.page || pageSize !== this.state.pageSize) {
+            debugger;
+            await this.fetchData();
+        }
+    }
+
+    private updateSearchParams() {
+        this.props.setSearchParams({
+            s: this.state.search,
+            p: "" + this.state.page,
+            ps: "" + this.state.pageSize
+        })
+    }
+
     private async fetchData() {
-        if(this.state.loadingData){return}
-        this.setState((curr)=>({...curr, loadingData: true}),async ()=>{
-            const time =  new Date().getTime()
+        if (this.state.loadingData) {
+            return
+        }
+        this.setState((curr) => ({...curr, loadingData: true}), async () => {
+            const time = new Date().getTime()
             const res = await server.post("search/",
                 {
                     type: this.state.mode,
-                    query: this.state.search,
-                    page: this.state.page
+                    query: this.state.committedSearch,
+                    page: this.state.page,
+                    page_size: this.state.pageSize
                 }
             );
-            if(time < this.state.lastFetch){return}
+            if (time < this.state.lastFetch) {
+                return
+            }
             if (res && !res.error) {
-                const data:ISearchRes[] = res.map((e:any):ISearchRes=>{
+                const data: IEpisode[] = res.results.map((e: any): IEpisode => {
                     return {
                         id: e.id,
                         program: e.title,
@@ -80,12 +116,18 @@ class Search extends React.Component<IProps, IState> {
                         transcripts: JSON.parse(e.transcripts)
                     }
                 });
-                this.setState((curr)=>({
-                    ...curr, data, loadingData: false, loadingError: null, lastFetch: time
-                }))
-            }
-            else {
-                this.setState((curr)=>({
+                this.setState((curr) => ({
+                    ...curr,
+                    data,
+                    loadingData: false,
+                    loadingError: null,
+                    lastFetch: time,
+                    pageCount: res.count
+                }), () => {
+                    this.updateSearchParams()
+                })
+            } else {
+                this.setState((curr) => ({
                     ...curr, loadingData: false,
                     loadingError: res?.error || "error - failed to load data",
                     lastFetch: time
@@ -94,108 +136,96 @@ class Search extends React.Component<IProps, IState> {
         })
     }
 
-    private getDataEditor():JSX.Element {
-        const data = this.state.data.slice()
-        return <Stack direction={"column"} gap={2}>{
-            data.map(e=>{
-                return <Card key={e.id}>
-                    <CardHeader
-                        title = {e.program}
-                        subheader = {e.date}
-                    />
-                    <CardContent>
-                        <Stack
-                            direction={"column"}
-                            gap={1}
-                            divider={<Divider orientation="horizontal" flexItem />}
-                        >{
-                            e.files.map((f, i)=>{
-                                return e.transcripts[i][0].transcript.results
-                                    .filter((s)=>{
-                                        return ((s.alternatives || [])[0] || "").includes(this.state.search)
-                                    })
-                                    .filter((s, j)=>j<=10)
-                                    .map((s, j: number)=>{
-                                        return <div key={""+i+"_"+j} style={{width: "60vw"}}>
-                                            <Stack direction={"row"} gap={1} alignItems={"center"}>
-                                                <IconButton
-                                                    size={"small"}
-                                                    color={"primary"}
-                                                    onClick={()=>{
-                                                        this.setState((curr)=>({...curr, audioPath: e.remote + "#t=" + s.offset}))
-                                                    }}
-                                                >
-                                                    <PlayCircle/>
-                                                </IconButton>
-                                                <span>{(s.alternatives || [])[0] || ""}</span>
-                                            </Stack>
-                                        </div>
-                                    })
-                            })
-                        }</Stack>
-                    </CardContent>
-                </Card>
-            })
-        }</Stack>
-    }
 
     render() {
         const page = this.state.page;
-        const pageCount = 10;
-        return <Stack className={"page-wrap"} direction={"column"} gap={2} alignItems={"center"} style={{margin: "3em"}}>
+        const pageCount = this.state.pageCount;
+        return <Stack
+            className={"page-wrap"} direction={"column"} gap={2} alignItems={"center"}
+            style={{padding: "2em", height: "100vh", boxSizing: "border-box", width: "65vw", margin: "0 auto"}}
+        >
             <Stack direction={"row"} gap={2}>
                 <TextField
                     value={this.state.search}
-                    onChange={e=>this.setState((curr)=>({...curr, search: e.target.value}),
-                    )}
-                    onKeyDown={async (e)=>{
-                        if(e.key==="Enter"){
-                            await this.fetchData();
+                    onChange={e => {
+                        this.setState((curr) => ({...curr, search: e.target.value}))
+                    }}
+                    onKeyDown={async (e) => {
+                        if (e.key === "Enter") {
+                            this.setState((curr) => ({
+                                ...curr, committedSearch: this.state.search, page: 0
+                            }), async () => {
+                                await this.fetchData();
+
+                            })
                         }
                     }}
+                    variant={"standard"}
+                    InputProps={{
+                        endAdornment: <InputAdornment position="end">
+                            <SearchOutlined/>
+                        </InputAdornment>,
+                    }}
+
                 />
                 <Select
                     value={this.state.mode}
-                    onChange={e=>this.setState((curr)=>({...curr, mode: e.target.value as "boolean" | "contains" | "regex"}),
-                        async()=>{await this.fetchData();}
+                    onChange={e => this.setState((curr) => ({
+                            ...curr,
+                            mode: e.target.value as "boolean" | "contains" | "regex"
+                        }),
+                        async () => {
+                            await this.fetchData();
+                        }
                     )}
+                    sx={{
+                        "& .MuiSelect-select": {
+                            "padding": "5px 14px"
+                        }
+                    }}
                 >
                     {
                         ["contains", "regex", "boolean"]
-                            .map(v=><MenuItem key={v} value={v}>{v}</MenuItem>)
+                            .map(v => <MenuItem key={v} value={v}>{v}</MenuItem>)
                     }
                 </Select>
             </Stack>
-            <div style={{height: "70vh", overflow: "auto"}}>
-            {
-                this.state.loadingData ? <CircularProgress/> : (
-                    this.state.loadingError ? <span className={"data-load-error"}>
+            <div style={{height: "65vh", overflowY: "auto", overflowX: "hidden"}}>
+                {
+                    this.state.loadingData ? <CircularProgress/> : (
+                        this.state.loadingError ? <span className={"data-load-error"}>
                         {this.state.loadingError}
                     </span> : <span>
-                        {this.getDataEditor()}
+                        <EpisodesDisplay
+                            data={this.state.data}
+                            showOnlySegmentsWithTerm={this.state.committedSearch}
+                            highlightTerms={[this.state.committedSearch]}
+                            onPlay={(url) => {
+                                this.setState((curr) => ({
+                                    ...curr,
+                                    audioPath: url
+                                }))
+                            }}
+                            collapseAfter={this.state.committedSearch.length > 2 ? 10 : undefined}
+                        />
                     </span>
-                )
-            }
+                    )
+                }
             </div>
-            <Pagination dir={"ltr"} count={pageCount} page={page + 1} onChange={(e, page)=>{
-                this.setState((curr)=>({...curr, page: page - 1}),
-                    async()=>{await this.fetchData();}
-                )
-            }} />
-            {this.state.audioPath ? <ReactAudioPlayer
-                key={this.state.audioPath}
-                src={this.state.audioPath}
-                controls
-                autoPlay
-                preload={"none"}
-                onCanPlay={(e)=>{
-                    /*setTimeout(()=>{
-                        console.log((e.target as HTMLAudioElement).currentTime);
-                        (e.target as HTMLAudioElement).currentTime=50
-                        console.log((e.target as HTMLAudioElement).currentTime);
-                    }, 3000)*/
-                }}
-            /> : null}
+            {
+                this.state.pageCount === undefined ? null :
+                    <Pagination dir={"ltr"} count={pageCount} page={page + 1} onChange={(e, page) => {
+                        this.setState((curr) => ({...curr, page: page - 1}),
+                            async () => {
+                                await this.fetchData();
+                            }
+                        )
+                    }}/>
+            }
+            <AudioPlayer
+                src={this.state.audioPath ? this.state.audioPath.split("#")[0] : ""}
+                startTime={this.state.audioPath ? this.state.audioPath.split("#t=")[1] : "00:00:00"}
+            />
         </Stack>
     }
 }

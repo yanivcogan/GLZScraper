@@ -15,6 +15,8 @@ import PubSub from 'pubsub-js';
 import events from './lib/events';
 import NoMatch from "./pages/404";
 import Search from "./pages/Search";
+import AlignDir from "./services/AlignDir";
+import Episode from "./pages/Episode";
 interface IProps {}
 interface IState {
   alertQueue: any[]
@@ -62,22 +64,17 @@ export default class App extends React.Component <IProps, IState> {
 
 
   render() {
-    const cacheRtl = createCache({
-      key: 'muirtl',
-      stylisPlugins: [prefixer, rtlPlugin],
-    });
     return (
-        <CacheProvider value={cacheRtl}>
+        <AlignDir direction={"rtl"}>
         <Router>
-          <div dir="rtl">
             <meta/>
             <Routes >
               <Route path="/" element={<Search/>}/>
+              <Route path="/Episode/:id" element={<Episode/>}/>
               <Route path="/*" element={<NoMatch/>}/>
             </Routes >
-          </div>
         </Router>
-        </CacheProvider>
+        </AlignDir>
     );
   }
 }
