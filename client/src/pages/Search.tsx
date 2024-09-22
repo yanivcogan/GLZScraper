@@ -113,7 +113,8 @@ class Search extends React.Component<IProps, IState> {
                         date: e.air_date,
                         files: JSON.parse(e.local_storage),
                         remote: e.file_url,
-                        transcripts: JSON.parse(e.transcripts)
+                        transcripts: JSON.parse(e.transcripts),
+                        glz_link: e.page_url
                     }
                 });
                 this.setState((curr) => ({
@@ -156,7 +157,6 @@ class Search extends React.Component<IProps, IState> {
                                 ...curr, committedSearch: this.state.search, page: 0
                             }), async () => {
                                 await this.fetchData();
-
                             })
                         }
                     }}
@@ -190,7 +190,7 @@ class Search extends React.Component<IProps, IState> {
                     }
                 </Select>
             </Stack>
-            <div style={{height: "65vh", overflowY: "auto", overflowX: "hidden"}}>
+            <div style={{height: "65vh", width: "100%", overflowY: "auto", overflowX: "hidden"}}>
                 {
                     this.state.loadingData ? <CircularProgress/> : (
                         this.state.loadingError ? <span className={"data-load-error"}>
@@ -206,7 +206,7 @@ class Search extends React.Component<IProps, IState> {
                                     audioPath: url
                                 }))
                             }}
-                            collapseAfter={this.state.committedSearch.length > 2 ? 10 : undefined}
+                            collapseAfter={this.state.committedSearch.length <= 2 ? 0 : undefined}
                         />
                     </span>
                     )

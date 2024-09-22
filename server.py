@@ -1,3 +1,4 @@
+import json
 import math
 import os
 from typing import Optional, Literal
@@ -98,9 +99,86 @@ async def fetch_episode(episode_id: int):
         {"episode_id": episode_id},
         "rows"
     )
+    for h in highlights:
+        h["range"] = json.loads(h["range"])
     return {
         "episode": episode,
         "highlights": highlights,
+    }
+
+
+class Highlight(BaseModel):
+    id: Optional[int] = None
+    episode_id: int
+    range: list[dict]
+    original_text: str
+    fixed_text: Optional[str] = None
+    speaker_name: str
+    title: str
+
+
+class HighlightsSave(BaseModel):
+    episode_id: int
+    highlights: list[Highlight]
+    to_delete: list[int]
+
+
+@app.post('/api/highlights/')
+async def save_highlights(save: HighlightsSave):
+    highlights = save.highlights
+    episode_id = save.episode_id
+    to_delete = save.to_delete
+    for h in highlights:
+        if h.id is None:
+            db.execute_query(
+                '''INSERT INTO highlights (`episode_id`, `range`, `original_text`, `fixed_text`, `speaker_name`, `title`)
+                VALUES (%(episode_id)s, %(range)s, %(original_text)s, %(fixed_text)s, %(speaker_name)s, %(title)s)''',
+                {
+                    "episode_id": h.episode_id,
+                    "range": json.dumps(h.range),
+                    "original_text": h.original_text,
+                    "fixed_text": h.fixed_text,
+                    "speaker_name": h.speaker_name,
+                    "title": h.title
+                },
+                "id"
+            )
+        else:
+            db.execute_query(
+                '''UPDATE highlights SET
+                 `episode_id` = %(episode_id)s, 
+                 `range` = %(range)s,
+                 `original_text` = %(original_text)s, 
+                 `fixed_text` = %(fixed_text)s, 
+                 `speaker_name` = %(speaker_name)s,
+                 `title` = %(title)s
+                WHERE `id` = %(id)s''',
+                {
+                    "id": h.id,
+                    "episode_id": h.episode_id,
+                    "range": json.dumps(h.range),
+                    "original_text": h.original_text,
+                    "fixed_text": h.fixed_text,
+                    "speaker_name": h.speaker_name,
+                    "title": h.title
+                },
+                "id"
+            )
+    for h in to_delete:
+        db.execute_query(
+            "DELETE FROM highlights WHERE id = %(id)s",
+            {"id": h},
+            "none"
+        )
+    results = db.execute_query(
+        "SELECT * FROM highlights WHERE episode_id = %(episode_id)s",
+        {"episode_id": episode_id},
+        "rows"
+    )
+    for r in results:
+        r["range"] = json.loads(r["range"])
+    return {
+        "saved_quotes": results,
     }
 
 

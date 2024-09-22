@@ -22,7 +22,7 @@ cnx_pool = mysql.connector.pooling.MySQLConnectionPool(pool_name="connections", 
                                                        password=PASSWORD)
 
 
-def execute_query(query, args, return_type: Literal["single_row", "rows", "id"] = "rows"):
+def execute_query(query, args, return_type: Literal["single_row", "rows", "id", "none"] = "rows"):
     cnx = cnx_pool.get_connection()
     cursor = cnx.cursor(buffered=True)
     try:
