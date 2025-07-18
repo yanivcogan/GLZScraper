@@ -6,7 +6,6 @@ from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
-from playwright_stealth import stealth_sync
 from w3lib.url import safe_url_string
 
 from utils import db
@@ -25,7 +24,6 @@ def extract_programmes(source: Literal["GLZ", "GLGLZ"], from_date: datetime, to_
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page()
-        stealth_sync(page)
         for i in range(-from_weeks_ago, -to_weeks_ago):
             print("getting programmes for " + str(i) + " weeks ago")
             try:
@@ -77,7 +75,7 @@ def add_glz_ids(id_less_shows: list):
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page()
-        stealth_sync(page)
+        stealth.stealth_sync(page)
         for s in id_less_shows:
             print("getting id for " + s["title"])
             try:

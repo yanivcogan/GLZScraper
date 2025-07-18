@@ -71,7 +71,7 @@ def store_episode(episodes: list):
     for e in episodes:
         try:
             db.execute_query(
-                '''INSERT INTO episode (`programme_id`, `glz_id`, `file_url`, `page_url`, `air_date`, `runtime`, `data`) 
+                '''INSERT INTO episode (programme_id_on_channel, episode_id_on_channel, `file_url`, `page_url`, `air_date`, `runtime`, `data`) 
                 VALUES (%(programme_id)s, %(glz_id)s, %(file_url)s, %(page_url)s, %(air_date)s, %(runtime)s, %(data)s) 
                 ON DUPLICATE KEY UPDATE 
                 `data`=%(data)s, 
@@ -98,7 +98,7 @@ def get_shows():
     return db.execute_query(
         '''SELECT p.* 
         FROM programme AS p
-        LEFT JOIN episode e on p.glz_id = e.programme_id
+        LEFT JOIN episode e on p.glz_id = e.programme_id_on_channel
         WHERE p.`glz_id` IS NOT NULL
         GROUP BY p.id
         HAVING COUNT(e.id) = 0

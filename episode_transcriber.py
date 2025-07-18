@@ -2,7 +2,7 @@ from google.api_core import client_options
 from google.cloud.speech_v2 import SpeechClient, BatchRecognizeResponse
 from google.cloud.speech_v2.types import cloud_speech
 
-project_id = "glz-archives"
+from google_cloud_storage_manager import gc_project_name, gc_bucket_name
 
 
 def transcribe_batch_gcs_input_inline_output_v2(
@@ -31,12 +31,12 @@ def transcribe_batch_gcs_input_inline_output_v2(
         model="chirp_2",
     )
 
-    gcs_uri = "gs://glz-content/" + gcs_object
+    gcs_uri = f"gs://{gc_bucket_name}/" + gcs_object
 
     file_metadata = cloud_speech.BatchRecognizeFileMetadata(uri=gcs_uri)
 
     request = cloud_speech.BatchRecognizeRequest(
-        recognizer=f"projects/{project_id}/locations/us-central1/recognizers/_",
+        recognizer=f"projects/{gc_project_name}/locations/us-central1/recognizers/_",
         config=config,
         files=[file_metadata],
         recognition_output_config=cloud_speech.RecognitionOutputConfig(

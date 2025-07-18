@@ -1,6 +1,4 @@
 import json
-import urllib
-import urllib.request
 from os import remove
 from typing import Literal, Optional
 
@@ -10,33 +8,29 @@ from pydub import AudioSegment
 
 from episode_transcriber import transcribe_batch_gcs_input_inline_output_v2
 from google_cloud_storage_manager import upload_blob, delete_blob
+from root_anchor import ROOT_DIR
+from services.c14_episode_downloader import download_remaining_c14_episodes, download_c14_m3u8_file
 from services.file_hash_generator import gen_hash
+from services.glz_episode_downloader import download_remaining_glz_episodes, download_glz_mp3_file
 from utils import db
 
 ua = UserAgent()
 
+SOURCE_TYPE = Literal["glz", "c14"]
 
-def download_remaining_episodes():
+
+def download_remaining_episodes(source_type: SOURCE_TYPE):
     start = time.time()
     download_count = 0
     while True:
-        episode_to_download = db.execute_query(
-            '''SELECT e.* 
-            FROM episode AS e
-            WHERE e.local_storage IS NULL AND
-             e.air_date > '2023-10-06' AND
-             e.download_status <> 'error' AND
-             e.duplicate_of IS NULL AND
-             e.transcripts IS NULL AND
-             e.page_url NOT LIKE '%|%D7|%92|%D7|%9C|%D7|%92|%D7|%9C|%D7|%A6%' ESCAPE '|'
-            ORDER BY e.air_date 
-            LIMIT 1
-            ''',
-            {}, "single_row"
-        )
+        episode_to_download = None
+        if source_type == "glz":
+            episode_to_download = download_remaining_glz_episodes()
+        elif source_type == "c14":
+            episode_to_download = download_remaining_c14_episodes()
         if episode_to_download is None:
             return
-        process_episode(episode_to_download["id"])
+        process_episode(episode_to_download["id"], source_type)
         end = time.time()
         download_count += 1
         print("**** INTERIM PROGRESS REPORT: downloaded " + str(download_count) + " episodes, time elapsed: " +
@@ -52,7 +46,7 @@ def set_episode_download_status(episode_id: int, status: Literal["not downloaded
     )
 
 
-def process_episode(episode_id: int):
+def process_episode(episode_id: int, source_type: SOURCE_TYPE):
     start = time.time()
     print("*************")
     print("processing episode " + str(episode_id))
@@ -72,7 +66,7 @@ def process_episode(episode_id: int):
         set_episode_download_status(episode_id, "in progress")
         try:
             set_episode_download_status(episode_id, "downloaded")
-            segments = download_episode(episode)
+            segments = download_episode(episode, source_type)
         except Exception as e:
             print(str(e))
             set_episode_download_status(episode_id, "error", str(e)[0:300])
@@ -87,14 +81,17 @@ def process_episode(episode_id: int):
     print("time elapsed: " + str(end - start))
 
 
-def download_episode(episode: dict) -> Optional[list[str]]:
+def download_episode(episode: dict, source_type: SOURCE_TYPE) -> Optional[list[str]]:
     episode_id = episode["id"]
     download_url = episode["file_url"]
     episode_filename = str(episode["air_date"]) + "_" + str(episode_id).zfill(10)
-    download_file(download_url, episode_filename)
+    if source_type == "glz":
+        download_glz_mp3_file(download_url, episode_filename)
+    elif source_type == "c14":
+        download_c14_m3u8_file(download_url, episode_filename)
     # check if the episode is a duplicate of an already existing episode
     print("hashing episode")
-    episode_hash = gen_hash("./dir/" + episode_filename + ".mp3")
+    episode_hash = gen_hash(ROOT_DIR / "dir" /  episode_filename + ".mp3")
     print("searching for previous airings of the same content")
     previous_airings = db.execute_query(
         '''SELECT * FROM episode
@@ -112,7 +109,7 @@ def download_episode(episode: dict) -> Optional[list[str]]:
             {"id": episode_id, "duplicate_of": previous_airings["id"]}, "id"
         )
         print("removing file")
-        remove("./dir/" + episode_filename + ".mp3")
+        remove(ROOT_DIR / "dir" /  episode_filename + ".mp3")
         print("removed file")
         set_episode_download_status(episode_id, "downloaded")
         return None
@@ -123,7 +120,7 @@ def download_episode(episode: dict) -> Optional[list[str]]:
         ''',
         {"id": episode_id, "content_hash": episode_hash}, "id"
     )
-    print("splitting episode for processing")
+    print("splitting episode for processing (because Google Cloud Speech-to-Text has a 1 hour limit)")
     file_segments = split_file(episode_filename)
     print("storing file links")
     db.execute_query(
@@ -133,46 +130,16 @@ def download_episode(episode: dict) -> Optional[list[str]]:
         {"id": episode_id, "file_segments": json.dumps(file_segments)}, "id"
     )
     print("removing file")
-    remove("./dir/" + episode_filename + ".mp3")
+    remove(ROOT_DIR / "dir" /  episode_filename + ".mp3")
     print("removed file")
     return file_segments
-
-
-def analyze_segments(file_segments: list[str], episode_id: int):
-    transcript_parts = []
-    for s in file_segments:
-        # uploading segment
-        upload_blob("./dir/" + s, s)
-        # transcribe segment
-        segment_transcript = transcribe_batch_gcs_input_inline_output_v2(s)
-        transcript_parts.append(segment_transcript)
-        print("removing segment")
-        delete_blob(s)
-        # remove("./dir/" + s)
-    print("storing transcript")
-    db.execute_query(
-        '''UPDATE episode SET transcripts = %(transcript_parts)s
-        WHERE id = %(id)s
-        ''',
-        {"id": episode_id, "transcript_parts": json.dumps(transcript_parts, ensure_ascii=False).encode('utf8')}, "id"
-    )
-
-
-def download_file(download_url: str, filename: str, file_ext: str = "mp3"):
-    print("downloading " + filename)
-    print("from: " + download_url)
-    response = urllib.request.urlopen(urllib.request.Request(download_url, headers={'User-Agent': ua.chrome}))
-    content = response.read()
-    with open("./dir/" + filename + "." + file_ext, "wb") as file:
-        file.write(content)
-        print("done_downloading " + filename)
 
 
 MAX_SEGMENT_LENGTH = 3600
 
 
 def split_file(file_name: str, file_ext: str = "mp3") -> list[str]:
-    file_path = "./dir/" + file_name + "." + file_ext
+    file_path = ROOT_DIR / "dir" /  file_name + "." + file_ext
     print("reading audio file " + file_name)
     audio = AudioSegment.from_file(file_path)
     print("checking audio length for file " + file_name)
@@ -185,7 +152,27 @@ def split_file(file_name: str, file_ext: str = "mp3") -> list[str]:
         print("creating segment " + str(segment_count))
         segment_audio = audio[start * 1000: int(min(start + MAX_SEGMENT_LENGTH, int(segment_length))) * 1000]
         segment_file_name = file_name + "_p" + str(segment_count) + '.' + file_ext
-        segment_audio.export("./dir/" + segment_file_name, format=file_ext, bitrate='32k')
+        segment_audio.export(ROOT_DIR / "dir" /  segment_file_name, format=file_ext, bitrate='32k')
         segments.append(segment_file_name)
         print("exported segment " + str(segment_count))
     return segments
+
+
+def analyze_segments(file_segments: list[str], episode_id: int):
+    transcript_parts = []
+    for s in file_segments:
+        # uploading segment
+        upload_blob(ROOT_DIR / "dir" /  s, s)
+        # transcribe segment
+        segment_transcript = transcribe_batch_gcs_input_inline_output_v2(s)
+        transcript_parts.append(segment_transcript)
+        print("removing segment")
+        delete_blob(s)
+        # remove(ROOT_DIR / "dir" /  s)
+    print("storing transcript")
+    db.execute_query(
+        '''UPDATE episode SET transcripts = %(transcript_parts)s
+        WHERE id = %(id)s
+        ''',
+        {"id": episode_id, "transcript_parts": json.dumps(transcript_parts, ensure_ascii=False).encode('utf8')}, "id"
+    )

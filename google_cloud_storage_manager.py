@@ -1,7 +1,7 @@
 from google.cloud import storage
 
-project_name = "glz-archives"
-bucket_name = "glz-content"
+gc_project_name = "glz-archives"
+gc_bucket_name = "glz-content"
 
 
 def upload_blob(source_file_name, destination_blob_name):
@@ -17,8 +17,8 @@ def upload_blob(source_file_name, destination_blob_name):
         f"Uploading file {source_file_name} to {destination_blob_name}."
     )
 
-    storage_client = storage.Client(project=project_name)
-    bucket = storage_client.bucket(bucket_name)
+    storage_client = storage.Client(project=gc_project_name)
+    bucket = storage_client.bucket(gc_bucket_name)
     blob = bucket.blob(destination_blob_name)
 
     blob.upload_from_filename(source_file_name, timeout=120000)
@@ -35,9 +35,9 @@ def delete_blob(blob_name):
 
     print(f"Deleting {blob_name} from Google Cloud Storage.")
 
-    storage_client = storage.Client(project=project_name)
+    storage_client = storage.Client(project=gc_project_name)
 
-    bucket = storage_client.bucket(bucket_name)
+    bucket = storage_client.bucket(gc_bucket_name)
     blob = bucket.blob(blob_name)
     blob.delete()
 
